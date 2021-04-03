@@ -5,7 +5,7 @@ given name < 21
 if material name exists :
 naming_method = 0   blender default (increment name)
 naming_method = 1   do nothing, abort creation and use existing
-naming_method = 2   create new, rename existing, 
+naming_method = 2   create new, rename existing,
 naming_method = 3   create new, replace existing
 '''
 
@@ -28,8 +28,8 @@ def new(name, naming_method):
 ##  TODO
 # @param ob 'all', 'active', 'selected', <object>, 'objectname'
 # @return a list of objects or an empty list
-def get(grp):
-    if type(ob) == str:
+def get(ob):
+    if isinstance(ob, str):
         if ob == 'all':
             return bpy.context.scene.objects
         elif ob == 'active':
@@ -53,7 +53,7 @@ def remove(ob, with_data=True):
         data = ob.data
         # and_data=False
         # never wipe data before unlink the ex-user object of the scene else crash (2.58 3 770 2)
-        # if there's more than one user for this data, never wipeOutData. will be done with the last user
+        # if there's more than one user for this data, never removeData. will be done with the last user
         # if in the list
         and_data = with_data
         try:
@@ -79,4 +79,4 @@ def remove(ob, with_data=True):
 
         # never wipe data before unlink the ex-user object of the scene else crash (2.58 3 770 2)
         if and_data:
-            wipeOutData(data)
+            removeData(data)

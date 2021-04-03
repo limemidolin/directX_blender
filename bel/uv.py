@@ -1,18 +1,26 @@
+import time
+import sys
 from mathutils import Vector
 from .__init__ import *
-from time import clock
+import bpy
 
+if sys.version_info >= (3, 3):
+    _rtime = time.perf_counter
+else:
+    _rtime = time.clock
 
 # uvs :
-# 
+#
 def write(me, uvs, matimage=False):
-    t = clock()
+    t = _rtime()
     uvs, nest = nested(uvs)
     newuvs = []
     # uvi : uvlayer id  uvlist : uv coordinates list
     for uvi, uvlist in enumerate(uvs):
-
-        uv = me.uv_textures.new()
+        if bpy.app.version >= (2, 80, 0):
+            uv = me.uv_layers.new()
+        else:
+            uv = me.uv_textures.new()
         uv.name = 'UV%s' % uvi
 
         uvlayer = me.uv_layers[-1].data
@@ -32,7 +40,7 @@ def write(me, uvs, matimage=False):
                 vi += 2
 
         newuvs.append(uv)
-    print('uvs in ', clock() - t)
+    print('uvs in ', _rtime() - t)
     if nest: return newuvs
     return newuvs[0]
 
@@ -46,7 +54,10 @@ def flatwrite(me, uvs, matimage=False):
     for uvi, uvlist in enumerate(uvs):
         # print('uvlist input : %s'%(len(uvlist)))
         # print(uvlist[0:5])
-        uv = me.uv_textures.new()
+        if bpy.app.version >= (2, 80, 0):
+            uv = me.uv_layers.new()
+        else:
+            uv = me.uv_textures.new()
         uv.name = 'UV%s' % uvi
         uvlayer = me.uv_layers[-1].data
         # flatuv = awaited uvlist length
@@ -93,14 +104,14 @@ def row(vertices, faces, normals=True):
 # eg : [ [v0x,v0y] , [vnx , vny] ... ] -> [ [ v1x,v1y,v0x,v0y,v4x,v4y] ... ]
 # found in directx
 def asVertsLocation(verts2d, faces):
-    t = clock()
+    t = _rtime()
     uv = []
     for f in faces:
         uvface = []
         for vi in f:
             uvface.extend(verts2d[vi])
         uv.append(uvface)
-    print('uvs convert in ', clock() - t)
+    print('uvs convert in ', _rtime() - t)
     return uv
 
 

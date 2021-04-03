@@ -4,10 +4,10 @@ def bpyname(name, collection, limit=63, suffix=4):
     name = name[:limit - suffix]
     tpl = '%s.%.' + str(suffix) + 'd'
     bname = name
-    id = 0
+    id_ = 0
     while bname in collection:
-        id += 1
-        bname = tpl % (name, id)
+        id_ += 1
+        bname = tpl % (name, id_)
     return bname
 
 

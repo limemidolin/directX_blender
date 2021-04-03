@@ -1,6 +1,6 @@
 import bpy
-from bpy.types import Mesh, PointLamp, SpotLamp, HemiLamp, AreaLamp, SunLamp, Camera, TextCurve, MetaBall, Lattice, \
-    Armature
+from bpy.types import Mesh, PointLight, SpotLight, AreaLight, SunLight, Camera, Curve, \
+    TextCurve, MetaBall, Lattice, Armature
 
 
 def new(name, datatype, naming_method):
@@ -13,14 +13,21 @@ def new(name, datatype, naming_method):
             ob = bpy.data.objects.new(name, datatype)
             ob.name = name
         elif naming_method == 3:
-            bpy.context.scene.objects.unlink(ob)
+            if bpy.app.version >= (2, 80, 0):
+                bpy.context.collection.objects.unlink(ob)
+            else:
+                bpy.context.scene.objects.unlink(ob)
             ob.user_clear()
             bpy.data.objects.remove(ob)
             ob = bpy.data.objects.new(name, datatype)
     else:
         ob = bpy.data.objects.new(name, datatype)
-    if ob.name not in bpy.context.scene.objects.keys():
-        bpy.context.scene.objects.link(ob)
+    if bpy.app.version >= (2, 80, 0):
+        if ob.name not in bpy.context.collection.objects.keys():
+            bpy.context.collection.objects.link(ob)
+    else:
+        if ob.name not in bpy.context.scene.objects.keys():
+            bpy.context.scene.objects.link(ob)
     return ob
 
 
@@ -28,9 +35,12 @@ def new(name, datatype, naming_method):
 # @param ob 'all', 'active', 'selected', <object>, 'objectname'
 # @return a list of objects or an empty list
 def get(ob):
-    if type(ob) == str:
+    if isinstance(ob, str):
         if ob == 'all':
-            return bpy.context.scene.objects
+            if bpy.app.version >= (2, 80, 0):
+                return bpy.context.collection.objects
+            else:
+                return bpy.context.scene.objects
         elif ob == 'active':
             return [bpy.context.active_object] if bpy.context.active_object != None else []
         elif ob == 'selected':
@@ -52,8 +62,8 @@ def remove(ob, with_data=True):
         data = ob.data
         # and_data=False
         # never wipe data before unlink the ex-user object of the scene else crash (2.58 3 770 2)
-        # if there's more than one user for this data, never wipeOutData. will be done with the last user
-        # if in the list
+        # if there's more than one user for this data, never removeData. will be done with the last
+        # user if in the list
         and_data = with_data
         try:
             if data.users > 1:
@@ -78,7 +88,7 @@ def remove(ob, with_data=True):
 
         # never wipe data before unlink the ex-user object of the scene else crash (2.58 3 770 2)
         if and_data:
-            wipeOutData(data)
+            removeData(data)
 
 
 ## remove an object data from blender internal
@@ -95,7 +105,7 @@ def removeData(data):
         if data_type == Mesh:
             bpy.data.meshes.remove(data)
         # lamp
-        elif data_type in [PointLamp, SpotLamp, HemiLamp, AreaLamp, SunLamp]:
+        elif data_type in [PointLight, SpotLight, AreaLight, SunLight]:
             bpy.data.lamps.remove(data)
         # camera
         elif data_type == Camera:

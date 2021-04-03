@@ -1,46 +1,31 @@
-# Blender directX importer
-# version baby
-
-# litterature explaining the parser directions :
-
-# I don't want to load the whole file as it can be huge : go chunks
-# also I want random access to 3d datas to import pieces, not always everything
-# so step1 is a whole file fast parsing, retrieving tokens name and building en empty internal dict
-# with only pointers and no 3d datas.
-# step 2 is to call any token by their names and retrieve the 3d datas thanks to pointers stored in dicts
-# between step 1 and step 2 a script ui should be provided to select, transform etc before import.
-# > I need to know the pointer position of tokens but data.tell() is slow
-# a += pointer computed from line length is way faster. so I need eol -> rb mode
-# and readline() is ok in binary mode 'rb' with \r\n (win) \n (unix) but not \r mac..
-# 2chrs for windows, 1 for mac and lunix > win eol \r\n becomes \n\n (add a line)
-# mac eol \r becomes \n so win lines info are wrong
-# this also allows support for wrong files format (mixed \r and \r\n)
-# for now it only works for text format, but the used methods will be independant of the container type.
-
-# TEST FILES
-# http://assimp.svn.sourceforge.net/viewvc/assimp/trunk/test/models/X/
-
+# Blender DirectX importer
+# version: see __init__.py
 
 import os
+import sys
 import re
-import struct, binascii
+import struct
+import binascii
 import time
 
 import bpy
 import mathutils as bmat
 from mathutils import Vector, Matrix
 
-try:
-    import bel
-    import bel.mesh
-    import bel.image
-    import bel.uv
-    import bel.material
-    import bel.ob
-    import bel.fs
-except:
-    import io_directx_bel.bel as bel
-    from .bel import mesh, image, uv, material, ob, fs
+# AttributeError: '_RestrictData' object has no attribute 'filepath':
+# myPath = os.path.dirname(bpy.data.filepath)
+script_file = os.path.realpath(__file__)
+directory = os.path.dirname(script_file)
+if not directory in sys.path:
+    sys.path.append(directory)
+
+import bel
+import bel.mesh
+import bel.image
+import bel.uv
+import bel.material
+import bel.ob
+import bel.fs
 
 from .templates_x import *
 
@@ -56,8 +41,20 @@ imp.reload(bel.ob)
 imp.reload(bel.uv)
 '''
 
+if sys.version_info >= (3, 3):
+    _rtime = time.perf_counter
+else:
+    _rtime = time.clock
 
 ###################################################
+
+# Copied from https://blender.stackexchange.com/questions/109711/how-to-popup-simple-message-box-from-python-console
+def ShowMessageBox(message = "", title = "Message Box", icon = 'INFO'):
+
+    def draw(self, context):
+        self.layout.label(text=message)
+
+    bpy.context.window_manager.popup_menu(draw, title = title, icon = icon)
 
 def load(operator, context, filepath, files,
          global_clamp_size=0.0,
@@ -102,7 +99,7 @@ def load(operator, context, filepath, files,
     '''
     '''
     with * : defined in dXdata
-    
+
     WORD     16 bits
     * DWORD     32 bits
     * FLOAT     IEEE float
@@ -147,7 +144,7 @@ BINARY FORMAT
 #define TOKEN_UNICODE     50
 #define TOKEN_CSTRING     51
 #define TOKEN_ARRAY       52
-    
+
     '''
 
     # COMMON REGEX
@@ -183,9 +180,9 @@ BINARY FORMAT
      4       Magic Number (required) "xof "
      2       Minor Version 03
      2       Major Version 02
-     4       Format Type (required) 
+     4       Format Type (required)
         "txt " Text File
-        "bin " Binary File  
+        "bin " Binary File
         "tzip" MSZip Compressed Text File
         "bzip" MSZip Compressed Binary File
      4       Float Accuracy "0032" 32 bit or "0064" 64 bit
@@ -199,10 +196,10 @@ BINARY FORMAT
             return False
         minor = data.read(2).decode()
         major = data.read(2).decode()
-        format = data.read(4).decode().strip()
+        format_ = data.read(4).decode().strip()
         accuracy = int(data.read(4).decode())
         data.seek(0)
-        return (minor, major, format, accuracy)
+        return (minor, major, format_, accuracy)
 
     ##
     def dXtree(data, quickmode=False):
@@ -318,9 +315,11 @@ BINARY FORMAT
             lines = chunk.decode('utf-8', errors='ignore')
             # if stream : return lines.replace('\r','').replace('\n','')
             lines = lines.replace('\r', '\n').split('\n')
-            if trunkated: lines[0] = trunkated + lines[0]
+            if trunkated:
+                lines[0] = trunkated + lines[0]
             if len(lines) == 1:
-                if lines[0] == '': return None, None
+                if lines[0] == '':
+                    return None, None
                 return lines, False
             return lines, lines.pop()
         # wip, todo for binaries
@@ -392,6 +391,15 @@ BINARY FORMAT
         block = block.replace('\n', '').replace(' ', '').replace('\t ', '')
         return block
 
+    def vec3ToVec4(vec3, alpha=1.0):
+        if len(vec3) == 4:
+            print("WARNING: vec3_to_vec4 got a vec4")
+            return vec3
+        elif len(vec3) != 3:
+            raise ValueError("WARNING: vec3_to_vec4 got a {}-long"
+                             " iterable.".format(len(vec3)))
+        return (vec3[0], vec3[1], vec3[2], alpha)
+
     def readToken(tokenname):
         token = tokens[tokenname]
         datatype = token['type'].lower()
@@ -404,9 +412,8 @@ BINARY FORMAT
             return False
         # print('> use template %s'%datatype)
         block = readBlock(data, token)
-        ptr = 0
         # return dXtemplateData(tpl,block)
-        fields, ptr = dXtemplateData(tpl, block)
+        fields, _ = dXtemplateData(tpl, block)
         if datatype in templatesConvert:
             fields = eval(templatesConvert[datatype])
         return fields
@@ -602,14 +609,22 @@ BINARY FORMAT
             armname = armdata
             armdata = bpy.data.armatures.new(name=armname)
             arm = bpy.data.objects.new(armname, armdata)
-            bpy.context.scene.objects.link(arm)
-            arm.select = True
-            bpy.context.scene.objects.active = arm
+            if bpy.app.version >= (2, 80, 0):
+                bpy.context.collection.objects.link(arm)
+                arm.select_set(state=True)
+                bpy.context.view_layer.objects.active = arm
+            else:
+                bpy.context.scene.objects.link(arm)
+                arm.select = True
+                bpy.context.scene.objects.active = arm
             bpy.ops.object.mode_set(mode='EDIT')
             parent_matrix = Matrix()
 
         bone = armdata.edit_bones.new(name=bonename)
-        bonematW = parent_matrix * bonemat
+        if bpy.app.version >= (2, 80, 0):
+            bonematW = parent_matrix @ bonemat
+        else:
+            bonematW = parent_matrix * bonemat
         bone.head = bonematW.to_translation()
         # bone.roll.. ?
         bone_length = bone_maxlength
@@ -617,13 +632,16 @@ BINARY FORMAT
             bonechild = buildArm(armdata, bonechild, lvl + 1, bonematW)
             bonechild.parent = bone
             bone_length = min((bonechild.head - bone.head).length, bone_length)
-        bone.tail = bonematW * Vector((0, bone_length, 0))
+        if bpy.app.version >= (2, 80, 0):
+            bone.tail = bonematW @ Vector((0, bone_length, 0))
+        else:
+            bone.tail = bonematW * Vector((0, bone_length, 0))
         if lvl == 0:
             bpy.ops.object.mode_set(mode='OBJECT')
             return arm
         return bone
 
-    def import_dXtree(field, file, lvl=0):
+    def import_dXtree(field, file_, lvl=0):
         tab = ' ' * lvl * 2
         if field == []:
             if show_geninfo: print('%s>> no childs, return False' % (tab))
@@ -658,7 +676,7 @@ BINARY FORMAT
                     parentname = tokenname
 
                 ob = getMesh(parentname, tokenname)
-                ob.name = file
+                ob.name = file_
                 obs.append(ob)
 
                 if show_geninfo: print('%smesh : %s' % (tab, tokenname))
@@ -673,7 +691,7 @@ BINARY FORMAT
                 frames.append(tokenname)
                 if show_geninfo: print('%sframe : %s' % (tab, tokenname))
 
-        # matrix is used for mesh transform if some mesh(es) exist(s)      
+        # matrix is used for mesh transform if some mesh(es) exist(s)
         if ob:
             is_root = True
             if not mat:
@@ -698,7 +716,10 @@ BINARY FORMAT
 
         # nothing case ?
         else:
-            ob = [parentname, Matrix() * global_matrix, []]
+            if bpy.app.version >= (2, 80, 0):
+                ob = [parentname, Matrix() @ global_matrix, []]
+            else:
+                ob = [parentname, Matrix() * global_matrix, []]
             if show_geninfo: print('%snothing here' % (tab))
 
         childs = []
@@ -707,7 +728,7 @@ BINARY FORMAT
             if show_geninfo: print('%s<Begin %s :' % (tab, tokenname))
 
             # child is either False, empty, object, or a list or undefined name matrices hierarchy
-            child = import_dXtree(getChilds(tokenname), lvl + 1)
+            child = import_dXtree(getChilds(tokenname), file_+"_"+tokenname, lvl=lvl+1)
             if child and type(child) != list:
                 is_root = True
             childs.append([tokenname, child])
@@ -796,10 +817,17 @@ BINARY FORMAT
             elif tokentype == 'meshmateriallist':
                 nbslots, facemats = readToken(childname)
 
-                if debug: print('facemats : %s' % (len(facemats)))
+                if debug:
+                    print('len(facemats) : %s' % (len(facemats)))
+                if debug:
+                    print('facemats : %s' % (facemats))
 
                 # length does not match (could be tuned more, need more cases)
                 if len(facemats) != len(faces):
+                    print("WARNING: There are {} facemats but {} faces."
+                          "The faces length will be used and facemats"
+                          "[0] will be used for each."
+                          "".format(len(facemats), len(faces)))
                     facemats = [facemats[0] for i in faces]
 
                 # mat can exist but with no datas so we prepare the mat slot
@@ -807,7 +835,11 @@ BINARY FORMAT
                 for slot in range(nbslots) if not do_not_add_unused_material else range(len(list(set(facemats)))):
                     matslots.append('dXnoname%s' % slot)
 
-                if debug: print(matslots)
+                if debug:
+                        print('matslots : %s' % matslots)
+                if debug:
+                        print('do_not_add_unused_material : %s' % do_not_add_unused_material)
+
 
                 # Table of convert face material index to blender material slot
                 materials_slot_dictionary = {}
@@ -818,8 +850,16 @@ BINARY FORMAT
 
                     if do_not_add_unused_material:
                         if slot_index in facemats:
+                            if debug:
+                                print("* adding {} at {}"
+                                      "".format(slot_index,
+                                                len(materials_slot_dictionary)))
                             materials_slot_dictionary.update({slot_index: len(materials_slot_dictionary)})
                         else:
+                            if debug:
+                                print("* skipping unused material"
+                                      " token {} not in facemats {}"
+                                      "".format(slot_index, facemats))
                             # Omit unused material tokens
                             if naming_method != 1:
                                 (_diffuse_color, _alpha), _power, _specCol, _emitCol = readToken(mat_name)
@@ -828,6 +868,8 @@ BINARY FORMAT
                             continue
 
                     slot_id = slot_index if not do_not_add_unused_material else materials_slot_dictionary[slot_index]
+                    if debug:
+                        print("slot_id: {}".format(slot_id))
 
                     # rename dummy mats with the right name
                     matslots[slot_id] = mat_name
@@ -840,12 +882,21 @@ BINARY FORMAT
                         # print('matname : %s'%matname)
                         (diffuse_color, alpha), power, specCol, emitCol = readToken(mat_name)
                         # if debug : print(diffuse_color,alpha, power, specCol, emitCol)
+                        if bpy.app.version >= (2, 80, 0):
+                            diffuse_color = vec3ToVec4(diffuse_color, alpha=alpha)
                         mat.diffuse_color = diffuse_color
-                        mat.diffuse_intensity = power
+                        # The following were removed in 2.80
+                        # (<https://docs.blender.org/api/2.80/change_log.html?
+                        # highlight=diffuse_intensity>):
+                        # diffuse_intensity, emit
+                        if bpy.app.version >= (2, 80, 0):
+                            pass
+                        else:
+                            mat.diffuse_intensity = power
+                            mat.emit = (emitCol[0] + emitCol[1] + emitCol[2]) / 3
                         mat.specular_color = specCol
                         # dX emit don't use diffuse color but is a color itself
-                        # convert it to a kind of intensity 
-                        mat.emit = (emitCol[0] + emitCol[1] + emitCol[2]) / 3
+                        # convert it to a kind of intensity
 
                         if alpha != 1.0:
                             mat.use_transparency = True
@@ -858,7 +909,7 @@ BINARY FORMAT
 
                         # texture
                         # only 'TextureFilename' can be here, no type test
-                        # textures have no name in .x so we build 
+                        # textures have no name in .x so we build
                         # image and texture names from the image file name
                         # bdata texture slot name = bdata image name
                         btexnames = []
@@ -928,10 +979,18 @@ BINARY FORMAT
                         # mat.name = first_texture_name
                         # first_texture_name = ""
 
-                facemats = [materials_slot_dictionary[i] for i in facemats]
+                print("materials_slot_dictionary:{}"
+                      "".format(materials_slot_dictionary))
+                if len(materials_slot_dictionary) > 0:
+                    facemats = [materials_slot_dictionary[i] for i in facemats]
+                else:
+                    print("WARNING: There were no entries in"
+                          " materials_slot_dictionary.")
+                    pass
 
                 # create remaining dummy mat
-                if debug: print(matslots)
+                if debug:
+                    print(matslots)
                 for slot_index, mat_name in enumerate(matslots):
                     if mat_name not in bpy.data.materials:
                         mat = bel.material.new(mat_name, naming_method)
@@ -972,7 +1031,7 @@ BINARY FORMAT
         item_file_path = (os.path.join(x_file_dir, item_file.name))
 
         print('\nimporting %s...' % item_file.name)
-        start = time.clock()
+        start = _rtime()
         path = os.path.dirname(item_file_path)
         item_file_path = os.fsencode(item_file_path)
         with open(item_file_path, 'rb') as data:
@@ -995,9 +1054,9 @@ BINARY FORMAT
 
                     ## FILE READ : STEP 1 : STRUCTURE
                     if show_geninfo: print('\nBuilding internal .x tree')
-                    t = time.clock()
+                    t = _rtime()
                     tokens, templates, tokentypes = dXtree(data, quickmode)
-                    readstruct_time = time.clock() - t
+                    readstruct_time = _rtime() - t
                     if show_geninfo: print('builded tree in %.2f\'' % (readstruct_time))  # ,end='\r')
 
                     ## populate templates with datas
@@ -1035,11 +1094,10 @@ BINARY FORMAT
                             ob = getMesh(obname, tokenname, show_geninfo)
                             ob.matrix_world = global_matrix
 
-                    print('done in %.2f\'' % (time.clock() - start))  # ,end='\r')
+                    print('done in %.2f\'' % (_rtime() - start))  # ,end='\r')
 
                 else:
-                    print('only .x files in text format are currently supported')
-                    print('please share your file to make the importer evolve')
+                    ShowMessageBox("only .x files in text format are currently supported.", "Import failed", "ERROR")
         rootTokens = []
 
     return {'FINISHED'}

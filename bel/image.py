@@ -13,7 +13,7 @@ def dprint(str, l=2):
 
 
 # create or retrieve a bdata image
-# given its path 
+# given its path
 def new(path, name=False, relative=True, premul=True):
     path = fs.clean(path)
     # check file
@@ -251,7 +251,7 @@ def BSshader(nodes, pointer):
         mat.texture_slots[0]
         tex = texslot.texture
         tex.type = 'IMAGE'
-        img = tex.image        
+        img = tex.image
         img.name
         '''
         # img = bpy.data.images.new(name='imgname',width=640, height=512)
